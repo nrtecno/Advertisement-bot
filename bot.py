@@ -523,7 +523,6 @@ async def buy_credits_amount(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["buy_credits"] = credits_to_buy
     context.user_data["buy_amount"] = amount_rupees
 
-    # Check pay.png exists
     if not os.path.exists(PAY_IMAGE_PATH):
         logger.error(f"pay.png not found at {PAY_IMAGE_PATH}")
         await update.message.reply_text(
@@ -830,13 +829,33 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
 
+# ---------- POST INIT (Webhook set karo) ----------
+async def post_init(app: Application):
+    """Webhook set karo jab bot start ho."""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        webhook_url = f"{render_url}/webhook/{BOT_TOKEN}"
+        await app.bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+        )
+        logger.info(f"✅ Webhook set: {webhook_url}")
+
+
 # ---------- MAIN ----------
 def main():
+    # Init DB
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(db.init_db())
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     # Approve/Reject handler outside conversation
     app.add_handler(CallbackQueryHandler(
@@ -891,8 +910,26 @@ def main():
     app.add_handler(conv)
     app.add_error_handler(error_handler)
 
-    logger.info("🚀 Bot is running...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # ---------- WEBHOOK MODE ----------
+    PORT = int(os.environ.get("PORT", 8443))
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
+    if RENDER_URL:
+        logger.info(f"🚀 Starting webhook on port {PORT}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=f"/webhook/{BOT_TOKEN}",
+            webhook_url=f"{RENDER_URL}/webhook/{BOT_TOKEN}",
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+        )
+    else:
+        logger.info("🚀 Starting polling (local mode)...")
+        app.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        )
 
 
 if __name__ == "__main__":
