@@ -9,7 +9,7 @@ def main_keyboard():
     return ReplyKeyboardMarkup(
         [
             ["📢 Advertisement", "💳 Buy Credits"],
-            ["👥 Users"],
+            ["💰 Earn Credits", "👥 Users"],
         ],
         resize_keyboard=True,
         is_persistent=True,
