@@ -7,7 +7,7 @@ from telegram.ext import (
 )
 
 import database as db
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_ID
 from states import (
     MAIN_MENU, AD_CALC_VIEWS, AD_LINK_INPUT, AD_FINAL_VIEWS,
     BUY_CREDITS_INPUT, BUY_SCREENSHOT_INPUT,
@@ -18,6 +18,7 @@ from states import (
 from handlers.start_handler import start, verify_join, main_menu_handler
 from handlers.advertisement import (
     advertisement_start, ad_calc_input, ad_link_input, ad_final_views,
+    claim_ad_credit,
 )
 from handlers.buy_credits import (
     buy_credits_start, buy_credits_callback,
@@ -41,7 +42,25 @@ async def post_init(app: Application):
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}")
+    logger.error(f"❌ Update {update} caused error {context.error}")
+    import traceback
+    logger.error("".join(traceback.format_exception(
+        type(context.error), context.error, context.error.__traceback__
+    )))
+
+
+# ---------- DEBUG COMMAND ----------
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Apna Telegram ID check karne ke liye."""
+    user = update.effective_user
+    await update.message.reply_text(
+        f"🆔 <b>Your Telegram ID:</b> <code>{user.id}</code>\n"
+        f"👤 Username: @{user.username or 'N/A'}\n"
+        f"📛 Name: {user.first_name}\n\n"
+        f"🔧 <b>Bot's ADMIN_ID (from env):</b> <code>{ADMIN_ID}</code>\n"
+        f"✅ Match: <b>{user.id == ADMIN_ID}</b>",
+        parse_mode="HTML",
+    )
 
 
 def main():
@@ -52,11 +71,27 @@ def main():
         .build()
     )
 
-    # Approve/Reject callback — outside conversation (always active)
-    app.add_handler(CallbackQueryHandler(
-        payment_action_callback, pattern=r"^(approve|reject)_\d+$"
-    ))
+    # ---------- GROUP -1: Payment + Ad Claim callbacks (always active) ----------
+    app.add_handler(
+        CallbackQueryHandler(
+            payment_action_callback,
+            pattern=r"^(approve|reject)_\d+$",
+        ),
+        group=-1,
+    )
 
+    app.add_handler(
+        CallbackQueryHandler(
+            claim_ad_credit,
+            pattern=r"^claim_\d+$",
+        ),
+        group=-1,
+    )
+
+    # ---------- GROUP 0: Debug commands ----------
+    app.add_handler(CommandHandler("myid", myid_command), group=0)
+
+    # ---------- GROUP 0: Main conversation handler ----------
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
@@ -102,9 +137,10 @@ def main():
         allow_reentry=True,
     )
 
-    app.add_handler(conv)
+    app.add_handler(conv, group=0)
     app.add_error_handler(error_handler)
 
+    # ---------- WEBHOOK / POLLING ----------
     PORT = int(os.environ.get("PORT", 8443))
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
