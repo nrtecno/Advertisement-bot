@@ -1,6 +1,5 @@
 import os
 import libsql_client
-from datetime import datetime
 
 TURSO_URL = os.getenv("TURSO_DB_URL")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
@@ -11,8 +10,10 @@ _client = None
 async def get_client():
     global _client
     if _client is None:
+        # Use HTTP scheme (more reliable on Render than WebSocket)
+        http_url = TURSO_URL.replace("libsql://", "https://")
         _client = libsql_client.create_client(
-            url=TURSO_URL,
+            url=http_url,
             auth_token=TURSO_AUTH_TOKEN,
         )
     return _client
@@ -44,8 +45,7 @@ async def init_db():
             views_delivered INTEGER DEFAULT 0,
             credits_spent INTEGER,
             status TEXT DEFAULT 'active',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -91,8 +91,7 @@ async def init_db():
             screenshot_file_id TEXT,
             status TEXT DEFAULT 'pending',
             admin_message_id INTEGER,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -162,15 +161,6 @@ async def create_link(user_id: int, link: str, views_target: int, credits_spent:
         [user_id, link, views_target, credits_spent],
     )
     return result.last_insert_rowid
-
-
-async def get_active_links():
-    client = await get_client()
-    result = await client.execute(
-        """SELECT * FROM links
-           WHERE status = 'active' AND views_delivered < views_target"""
-    )
-    return result.rows
 
 
 async def get_link_by_id(link_id: int):
