@@ -35,19 +35,9 @@ logger = logging.getLogger(__name__)
 
 
 async def post_init(app: Application):
-    """App ke event loop me DB init + webhook set karo."""
+    """Sirf DB init karo — webhook run_webhook() khud set karega."""
     await db.init_db()
     logger.info("✅ Turso DB initialized")
-
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        webhook_url = f"{render_url}/webhook/{BOT_TOKEN}"
-        await app.bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-        )
-        logger.info(f"✅ Webhook set: {webhook_url}")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
