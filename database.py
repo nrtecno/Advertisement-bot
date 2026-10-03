@@ -16,7 +16,6 @@ def row_to_dict(row, columns):
     try:
         return {col: row[col] for col in columns}
     except Exception:
-        # Fallback — index-based
         try:
             return {columns[i]: row[i] for i in range(len(columns))}
         except Exception:
@@ -27,7 +26,6 @@ def rows_to_dicts(result):
     """ResultSet ke saare rows ko list of dicts me convert karo."""
     cols = list(result.columns) if hasattr(result, "columns") else []
     if not cols:
-        # Agar columns nahi mile, fallback
         return [r for r in result.rows]
     return [row_to_dict(r, cols) for r in result.rows]
 
@@ -205,6 +203,18 @@ async def get_link_by_id(link_id: int):
         "SELECT * FROM links WHERE id = ?", [link_id]
     )
     return first_row_as_dict(result)
+
+
+async def get_active_links():
+    """Saare active ad links jo abhi views chahiye (Earn Credits ke liye)."""
+    client = await get_client()
+    result = await client.execute(
+        """SELECT * FROM links
+           WHERE status = 'active' AND views_delivered < views_target
+           ORDER BY created_at DESC
+           LIMIT 20"""
+    )
+    return rows_to_dicts(result)
 
 
 async def increment_link_views(link_id: int):
