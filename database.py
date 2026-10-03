@@ -7,6 +7,21 @@ TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 _client = None
 
 
+def row_to_dict(row):
+    """Turso Row ko dict me convert karo taaki .get() kaam kare."""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row
+    try:
+        return {k: row[k] for k in row.keys()}
+    except AttributeError:
+        try:
+            return dict(row)
+        except Exception:
+            return row
+
+
 async def get_client():
     global _client
     if _client is None:
@@ -102,7 +117,7 @@ async def get_user(user_id: int):
     result = await client.execute(
         "SELECT * FROM users WHERE user_id = ?", [user_id]
     )
-    return result.rows[0] if result.rows else None
+    return row_to_dict(result.rows[0]) if result.rows else None
 
 
 async def create_user(user_id: int, username: str = None, first_name: str = None):
@@ -143,13 +158,13 @@ async def update_user_mobile(user_id: int, mobile: str):
 async def get_all_user_ids():
     client = await get_client()
     result = await client.execute("SELECT user_id FROM users")
-    return [row["user_id"] for row in result.rows]
+    return [row_to_dict(row)["user_id"] for row in result.rows]
 
 
 async def get_user_count():
     client = await get_client()
     result = await client.execute("SELECT COUNT(*) as cnt FROM users")
-    return result.rows[0]["cnt"]
+    return row_to_dict(result.rows[0])["cnt"]
 
 
 # ---------- LINKS ----------
@@ -168,7 +183,7 @@ async def get_link_by_id(link_id: int):
     result = await client.execute(
         "SELECT * FROM links WHERE id = ?", [link_id]
     )
-    return result.rows[0] if result.rows else None
+    return row_to_dict(result.rows[0]) if result.rows else None
 
 
 async def increment_link_views(link_id: int):
@@ -219,14 +234,14 @@ async def get_deliveries_for_link(link_id: int):
     result = await client.execute(
         "SELECT * FROM ad_deliveries WHERE link_id = ?", [link_id]
     )
-    return result.rows
+    return [row_to_dict(row) for row in result.rows]
 
 
 # ---------- BROADCAST ----------
 async def get_broadcast_state():
     client = await get_client()
     result = await client.execute("SELECT * FROM broadcast_state WHERE id = 1")
-    return result.rows[0] if result.rows else {"is_on": 0, "message": ""}
+    return row_to_dict(result.rows[0]) if result.rows else {"is_on": 0, "message": ""}
 
 
 async def set_broadcast_state(is_on: int, message: str = ""):
@@ -254,7 +269,7 @@ async def get_pending_order(order_id: int):
     result = await client.execute(
         "SELECT * FROM pending_orders WHERE id = ?", [order_id]
     )
-    return result.rows[0] if result.rows else None
+    return row_to_dict(result.rows[0]) if result.rows else None
 
 
 async def update_order_status(order_id: int, status: str):
@@ -278,4 +293,4 @@ async def get_user_pending_orders(user_id: int):
         "SELECT * FROM pending_orders WHERE user_id = ? AND status = 'pending'",
         [user_id],
     )
-    return result.rows
+    return [row_to_dict(row) for row in result.rows]
