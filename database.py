@@ -7,25 +7,44 @@ TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 _client = None
 
 
-def row_to_dict(row):
-    """Turso Row ko dict me convert karo taaki .get() kaam kare."""
+def row_to_dict(row, columns):
+    """Turso Row + columns se dict banao (100% reliable)."""
     if row is None:
         return None
     if isinstance(row, dict):
         return row
     try:
-        return {k: row[k] for k in row.keys()}
-    except AttributeError:
+        return {col: row[col] for col in columns}
+    except Exception:
+        # Fallback — index-based
         try:
-            return dict(row)
+            return {columns[i]: row[i] for i in range(len(columns))}
         except Exception:
             return row
+
+
+def rows_to_dicts(result):
+    """ResultSet ke saare rows ko list of dicts me convert karo."""
+    cols = list(result.columns) if hasattr(result, "columns") else []
+    if not cols:
+        # Agar columns nahi mile, fallback
+        return [r for r in result.rows]
+    return [row_to_dict(r, cols) for r in result.rows]
+
+
+def first_row_as_dict(result):
+    """ResultSet ka pehla row dict me return karo (None agar empty)."""
+    if not result.rows:
+        return None
+    cols = list(result.columns) if hasattr(result, "columns") else []
+    if not cols:
+        return result.rows[0]
+    return row_to_dict(result.rows[0], cols)
 
 
 async def get_client():
     global _client
     if _client is None:
-        # Use HTTP scheme (more reliable on Render than WebSocket)
         http_url = TURSO_URL.replace("libsql://", "https://")
         _client = libsql_client.create_client(
             url=http_url,
@@ -117,7 +136,7 @@ async def get_user(user_id: int):
     result = await client.execute(
         "SELECT * FROM users WHERE user_id = ?", [user_id]
     )
-    return row_to_dict(result.rows[0]) if result.rows else None
+    return first_row_as_dict(result)
 
 
 async def create_user(user_id: int, username: str = None, first_name: str = None):
@@ -158,13 +177,15 @@ async def update_user_mobile(user_id: int, mobile: str):
 async def get_all_user_ids():
     client = await get_client()
     result = await client.execute("SELECT user_id FROM users")
-    return [row_to_dict(row)["user_id"] for row in result.rows]
+    rows = rows_to_dicts(result)
+    return [r["user_id"] for r in rows]
 
 
 async def get_user_count():
     client = await get_client()
     result = await client.execute("SELECT COUNT(*) as cnt FROM users")
-    return row_to_dict(result.rows[0])["cnt"]
+    row = first_row_as_dict(result)
+    return row["cnt"] if row else 0
 
 
 # ---------- LINKS ----------
@@ -183,7 +204,7 @@ async def get_link_by_id(link_id: int):
     result = await client.execute(
         "SELECT * FROM links WHERE id = ?", [link_id]
     )
-    return row_to_dict(result.rows[0]) if result.rows else None
+    return first_row_as_dict(result)
 
 
 async def increment_link_views(link_id: int):
@@ -234,14 +255,17 @@ async def get_deliveries_for_link(link_id: int):
     result = await client.execute(
         "SELECT * FROM ad_deliveries WHERE link_id = ?", [link_id]
     )
-    return [row_to_dict(row) for row in result.rows]
+    return rows_to_dicts(result)
 
 
 # ---------- BROADCAST ----------
 async def get_broadcast_state():
     client = await get_client()
     result = await client.execute("SELECT * FROM broadcast_state WHERE id = 1")
-    return row_to_dict(result.rows[0]) if result.rows else {"is_on": 0, "message": ""}
+    row = first_row_as_dict(result)
+    if row:
+        return row
+    return {"is_on": 0, "message": ""}
 
 
 async def set_broadcast_state(is_on: int, message: str = ""):
@@ -269,7 +293,7 @@ async def get_pending_order(order_id: int):
     result = await client.execute(
         "SELECT * FROM pending_orders WHERE id = ?", [order_id]
     )
-    return row_to_dict(result.rows[0]) if result.rows else None
+    return first_row_as_dict(result)
 
 
 async def update_order_status(order_id: int, status: str):
@@ -293,4 +317,4 @@ async def get_user_pending_orders(user_id: int):
         "SELECT * FROM pending_orders WHERE user_id = ? AND status = 'pending'",
         [user_id],
     )
-    return [row_to_dict(row) for row in result.rows]
+    return rows_to_dicts(result)
