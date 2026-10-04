@@ -190,8 +190,8 @@ async def get_user_count():
 async def create_link(user_id: int, link: str, views_target: int, credits_spent: int):
     client = await get_client()
     result = await client.execute(
-        """INSERT INTO links (user_id, link, views_target, credits_spent)
-           VALUES (?, ?, ?, ?)""",
+        """INSERT INTO links (user_id, link, views_target, views_delivered, credits_spent, status)
+           VALUES (?, ?, ?, 0, ?, 'active')""",
         [user_id, link, views_target, credits_spent],
     )
     return result.last_insert_rowid
@@ -206,13 +206,36 @@ async def get_link_by_id(link_id: int):
 
 
 async def get_active_links():
-    """Saare active ad links jo abhi views chahiye (Earn Credits ke liye)."""
+    """Saare active ad links jo abhi views chahiye."""
     client = await get_client()
     result = await client.execute(
         """SELECT * FROM links
            WHERE status = 'active' AND views_delivered < views_target
            ORDER BY created_at DESC
            LIMIT 20"""
+    )
+    return rows_to_dicts(result)
+
+
+async def get_next_available_link(user_id: int):
+    """User ke liye ek hi available link return karo (jo usne click nahi kiya)."""
+    client = await get_client()
+    result = await client.execute(
+        """SELECT * FROM links
+           WHERE status = 'active' AND views_delivered < views_target
+           AND id NOT IN (SELECT link_id FROM clicks WHERE clicker_user_id = ?)
+           ORDER BY created_at DESC
+           LIMIT 1""",
+        [user_id]
+    )
+    return first_row_as_dict(result)
+
+
+async def get_all_links_admin():
+    """Admin debug ke liye — saare links."""
+    client = await get_client()
+    result = await client.execute(
+        "SELECT * FROM links ORDER BY id DESC LIMIT 50"
     )
     return rows_to_dicts(result)
 
