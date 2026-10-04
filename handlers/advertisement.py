@@ -15,20 +15,18 @@ from states import (
 
 logger = logging.getLogger(__name__)
 
-# Wait time in seconds
 AD_WAIT_SECONDS = 10
 
 
 # ---------- AD TASK KEYBOARD ----------
 def ad_task_keyboard(advertiser_link: str, link_id: int):
-    """Ad task ke liye 2 buttons — visit + claim."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔗 Visit Link", url=advertiser_link)],
         [InlineKeyboardButton("✅ Claim 1 Credit", callback_data=f"claim_{link_id}")],
     ])
 
 
-# ---------- ADVERTISEMENT FLOW (Advertisement button) ----------
+# ---------- ADVERTISEMENT FLOW ----------
 async def advertisement_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💰 <b>Digital Price Calculator</b>\n\n"
@@ -155,7 +153,6 @@ async def ad_final_views(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 
-# ---------- BROADCAST AD TO ALL USERS ----------
 async def broadcast_ad_to_users(context, link_id: int, link: str):
     user_ids = await db.get_all_user_ids()
     state = await db.get_broadcast_state()
@@ -165,7 +162,6 @@ async def broadcast_ad_to_users(context, link_id: int, link: str):
     deep_link = f"https://t.me/{BOT_USERNAME}?start=ad_{link_id}"
     keyboard = ad_earn_keyboard(deep_link)
 
-    # Updated message text with 10-second instruction
     text = (
         f"🔗 <b>New Advertisement</b>\n\n"
         f"👉 Click & visit for <b>{AD_WAIT_SECONDS} seconds</b>.\n"
@@ -186,11 +182,14 @@ async def broadcast_ad_to_users(context, link_id: int, link: str):
             logger.warning(f"Ad send failed for {uid}: {e}")
 
 
-# ---------- AD CLICK HANDLER (deep-link se aata hai) ----------
+# ---------- HANDLE BROADCAST AD CLICK (deep-link) ----------
 async def handle_ad_click(update: Update, context: ContextTypes.DEFAULT_TYPE,
                           link_id: int):
     user = update.effective_user
     user_id = user.id
+
+    # 🔑 User came from broadcast → NOT earn flow → no next ad after claim
+    context.user_data["in_earn_flow"] = False
 
     link = await db.get_link_by_id(link_id)
     if not link:
@@ -203,26 +202,23 @@ async def handle_ad_click(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     await ensure_user(update, context)
 
-    # Already claimed?
     if await db.has_clicked(link_id, user_id):
         await update.message.reply_text(
             "⚠️ <b>You already claimed this ad!</b>\n\n"
-            "Only 1 credit per ad link. Please check other ads in menu.",
+            "Only 1 credit per ad link.",
             parse_mode=ParseMode.HTML,
             reply_markup=main_keyboard(),
         )
         return
 
-    # Store start time (per user, per link)
     context.user_data[f"ad_start_{link_id}"] = time.time()
 
     text = (
         f"📢 <b>Advertisement Task</b>\n\n"
-        f"👇 <b>Step 1:</b> Click the button below to visit the link\n\n"
+        f"👇 <b>Step 1:</b> Click the button below\n\n"
         f"🔗 <b>{link['link']}</b>\n\n"
-        f"⏱️ <b>Step 2:</b> Stay on that page for <b>{AD_WAIT_SECONDS} seconds</b>\n\n"
-        f"✅ <b>Step 3:</b> Come back here and click <b>Claim 1 Credit</b>\n\n"
-        f"⚠️ <i>Claim button will only work after {AD_WAIT_SECONDS} seconds.</i>"
+        f"⏱️ <b>Step 2:</b> Stay for <b>{AD_WAIT_SECONDS} seconds</b>\n\n"
+        f"✅ <b>Step 3:</b> Come back and click <b>Claim 1 Credit</b>"
     )
 
     await update.message.reply_text(
@@ -238,7 +234,6 @@ async def claim_ad_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
 
-    # Parse link_id from callback data (claim_<id>)
     try:
         link_id = int(query.data.split("_", 1)[1])
     except Exception as e:
@@ -246,13 +241,13 @@ async def claim_ad_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Invalid request.", show_alert=True)
         return
 
-    # --- Check timer ---
+    # Timer check
     start_key = f"ad_start_{link_id}"
     start_time = context.user_data.get(start_key)
 
     if start_time is None:
         await query.answer(
-            "⚠️ Session expired. Please click the ad link again from menu.",
+            "⚠️ Session expired. Please click the ad link again.",
             show_alert=True,
         )
         return
@@ -266,7 +261,6 @@ async def claim_ad_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Check if already claimed ---
     if await db.has_clicked(link_id, user_id):
         await query.answer("⚠️ You already claimed this ad!", show_alert=True)
         try:
@@ -275,30 +269,26 @@ async def claim_ad_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
-    # --- Verify link still active ---
     link = await db.get_link_by_id(link_id)
     if not link or link["status"] != "active":
         await query.answer("⚠️ This ad is completed.", show_alert=True)
         return
 
-    # --- Credit user ---
+    # Credit user
     await db.record_click(link_id, user_id)
     await db.update_user_credits(user_id, 1)
     completed = await db.increment_link_views(link_id)
 
-    # Remove claim button
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    # Success message
     try:
         await query.edit_message_text(
             f"🎉 <b>+1 Credit Earned!</b>\n\n"
-            f"✅ Verification complete ({int(elapsed)}s).\n"
-            f"💰 Your balance has been updated.\n\n"
-            f"Thanks for supporting the community! 🙏",
+            f"✅ Verified ({int(elapsed)}s).\n"
+            f"💰 Your balance has been updated.",
             parse_mode=ParseMode.HTML,
         )
     except Exception:
@@ -308,16 +298,22 @@ async def claim_ad_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await query.answer("✅ +1 Credit earned!")
-
-    # Clear session
     context.user_data.pop(start_key, None)
 
-    # If link completed, clean up
     if completed:
         await finalize_link(context, link_id)
 
+    # 🔑 If user is in earn flow → send NEXT ad automatically
+    if context.user_data.get("in_earn_flow"):
+        await asyncio.sleep(1)
+        try:
+            from handlers.earn_credits import send_next_earn_ad
+            await send_next_earn_ad(context, user_id, user_id)
+        except Exception as e:
+            logger.error(f"Send next earn ad failed: {e}")
 
-# ---------- FINALIZE (when target views reached) ----------
+
+# ---------- FINALIZE ----------
 async def finalize_link(context, link_id: int):
     link = await db.get_link_by_id(link_id)
     if not link:
